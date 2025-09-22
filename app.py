@@ -1,134 +1,115 @@
 import streamlit as st
+import pandas as pd
 import datetime
 from datetime import timedelta
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.colors import ListedColormap
-import google.cloud.firestore
-import json
+import os
 
-# --- CONFIGURATION & DATABASE CONNECTION ---
+# --- CONFIGURATION ---
+TASK_DATA_FILE = "tasks.csv"
+st.set_page_config(page_title="Task Tracker", page_icon="✅", layout="wide")
 
-# This line uses Streamlit's secrets management to get your Firebase credentials
-# You will set this up in the Streamlit Cloud dashboard
-key_dict = json.loads(st.secrets["textkey"])
-creds = google.oauth2.service_account.Credentials.from_service_account_info(key_dict)
-db = google.cloud.firestore.Client(credentials=creds, project="task-tracker-app")
+# --- Initialize Session State ---
+if 'confirm_delete' not in st.session_state:
+    st.session_state.confirm_delete = None # Stores the index of the task to be deleted
 
+# --- DATA HANDLING FUNCTIONS (LOCAL CSV) ---
 
-# --- DATA HANDLING FUNCTIONS (NOW WITH FIREBASE) ---
-
-@st.cache_data(ttl=300) # Cache the data for 5 minutes
 def load_data():
-    """Load task data from Firestore, returning a list of dictionaries."""
-    tasks_ref = db.collection("tasks").stream()
-    tasks = [task.to_dict() for task in tasks_ref]
-    # Ensure dates are proper datetime objects
-    for task in tasks:
-        task['date'] = task['date'].date()
-    return tasks
+    """Load task data from CSV, create file if it doesn't exist, and add 'status' column if missing."""
+    if not os.path.exists(TASK_DATA_FILE):
+        df = pd.DataFrame(columns=['date', 'task', 'status'])
+        df.to_csv(TASK_DATA_FILE, index=False)
+    
+    df = pd.read_csv(TASK_DATA_FILE, parse_dates=['date'])
+    
+    if 'status' not in df.columns:
+        df['status'] = 'completed' # Backward compatibility for old files
+    
+    return df
 
-def save_task(task_description, task_date):
-    """Save a new task to Firestore."""
-    doc_ref = db.collection("tasks").document()
-    doc_ref.set({
-        'id': doc_ref.id,
-        'date': datetime.datetime.combine(task_date, datetime.datetime.min.time()),
-        'task': task_description,
-        'status': 'pending'
-    })
-
-def update_task_status(task_id, new_status):
-    """Update the status of an existing task."""
-    db.collection("tasks").document(task_id).update({'status': new_status})
-
-def delete_task(task_id):
-    """Delete a task from Firestore."""
-    db.collection("tasks").document(task_id).delete()
+def save_data(df):
+    """Save the DataFrame to the CSV file."""
+    df.to_csv(TASK_DATA_FILE, index=False)
 
 
-# --- All other functions (calculate_stats, display_badges, create_calendar_heatmap, etc.) remain the same ---
-# They will now receive a list of dictionaries instead of a pandas DataFrame,
-# but the logic inside them is adapted to handle this.
+# --- CORE LOGIC & PLOTTING (No changes needed here) ---
 
-def calculate_stats(tasks):
-    """Calculate key statistics from the list of tasks."""
-    if not tasks:
+def calculate_stats(df):
+    if df.empty:
         return 0, 0, 0, 0, 0
 
-    completed_tasks = [t for t in tasks if t['status'] == 'completed']
-    unique_dates = sorted(list(set(t['date'] for t in tasks)))
+    completed_df = df[df['status'] == 'completed']
+    unique_dates = sorted(df['date'].dt.date.unique())
     total_active_days = len(unique_dates)
-    
+
     one_week_ago = datetime.date.today() - timedelta(days=7)
-    tasks_last_week = len([t for t in completed_tasks if t['date'] > one_week_ago])
+    tasks_last_week = completed_df[completed_df['date'].dt.date > one_week_ago].shape[0]
 
     if not unique_dates:
-        return len(completed_tasks), tasks_last_week, 0, 0, 0
-
-    # Max streak calculation
+        return completed_df.shape[0], tasks_last_week, 0, 0, 0
+    
     max_streak = 0
     if total_active_days > 0:
         max_streak = 1
-        current_streak = 1
+        current_streak_calc = 1
         for i in range(1, len(unique_dates)):
             if unique_dates[i] == unique_dates[i - 1] + timedelta(days=1):
-                current_streak += 1
+                current_streak_calc += 1
             else:
-                current_streak = 1
-            if current_streak > max_streak:
-                max_streak = current_streak
+                current_streak_calc = 1
+            if current_streak_calc > max_streak:
+                max_streak = current_streak_calc
     
-    # Current streak calculation
-    current_streak_calc = 0
+    current_streak = 0
     if unique_dates:
         today = datetime.date.today()
         if unique_dates[-1] == today or unique_dates[-1] == today - timedelta(days=1):
-            current_streak_calc = 1
+            current_streak = 1
             for i in range(len(unique_dates) - 1, 0, -1):
                 if unique_dates[i] == unique_dates[i - 1] + timedelta(days=1):
-                    current_streak_calc += 1
+                    current_streak += 1
                 else:
                     break
-    
-    return len(completed_tasks), tasks_last_week, total_active_days, max_streak, current_streak_calc
+        # If the last active day was not today or yesterday, the streak is broken
+        if unique_dates[-1] < today - timedelta(days=1):
+            current_streak = 0
+            
+    return completed_df.shape[0], tasks_last_week, total_active_days, max_streak, current_streak
 
 def display_badges(max_streak):
-    """Displays streak badges based on the user's max streak."""
     st.header("Your Badges")
     badge_svg_template = """<div style="text-align: center; border: 2px solid #e1e4e8; border-radius: 10px; padding: 15px; margin: 5px; background-color: #f6f8fa;"><svg width="80" height="80" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M12 2L3 5V11C3 16.5 6.8 21.7 12 23C17.2 21.7 21 16.5 21 11V5L12 2Z" fill="#F9E076" stroke="#B47D00" stroke-width="1"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="Arial, sans-serif" font-size="7px" font-weight="bold" fill="#B47D00">{days}</text><text x="50%" y="65%" dominant-baseline="middle" text-anchor="middle" font-family="Arial, sans-serif" font-size="5px" fill="#B47D00">Days</text></svg><p style="font-weight: bold; margin-top: 5px; color: #24292e;">{days} Day Streak</p></div>"""
     milestones = [50, 100, 150, 200, 250, 300, 365]
     badges_earned = [m for m in milestones if max_streak >= m]
+
     if not badges_earned:
         st.info("Keep up the great work! Your first badge unlocks at a 50-day streak.")
         return
+    
     cols = st.columns(len(badges_earned))
     for i, milestone in enumerate(badges_earned):
         with cols[i]:
             st.markdown(badge_svg_template.format(days=milestone), unsafe_allow_html=True)
 
-def create_calendar_heatmap(tasks):
-    """Creates a GitHub/LeetCode-style calendar heatmap from the task data."""
-    if not tasks:
+def create_calendar_heatmap(df):
+    if df.empty:
         fig, ax = plt.subplots(figsize=(16, 4))
         ax.text(0.5, 0.5, 'No data to display', ha='center', va='center')
         return fig
-    
-    import pandas as pd # Import pandas only for plotting
-    plot_df = pd.DataFrame(tasks)
+
+    plot_df = df.copy()
     plot_df['date'] = pd.to_datetime(plot_df['date'])
     daily_counts = plot_df.groupby(plot_df['date'].dt.date).size()
     
     today = datetime.date.today()
     start_date = today - timedelta(weeks=53)
     all_days = pd.date_range(start=start_date, end=today, freq='D')
-    
     daily_counts = daily_counts.reindex(all_days.date, fill_value=0)
-
-    calendar_data = pd.DataFrame({
-        'counts': daily_counts.values,
-        'date': daily_counts.index
-    })
+    
+    calendar_data = pd.DataFrame({'counts': daily_counts.values, 'date': daily_counts.index})
     calendar_data['date'] = pd.to_datetime(calendar_data['date'])
     calendar_data['weekday'] = calendar_data['date'].dt.weekday
     calendar_data['week'] = calendar_data['date'].dt.isocalendar().week
@@ -172,67 +153,83 @@ def create_calendar_heatmap(tasks):
     plt.tight_layout()
     return fig
 
-
-def display_task_list(tasks, filter_status):
-    """Displays the interactive task list with filtering and actions."""
+def display_task_list(df, filter_status):
     st.header("Recent Tasks")
     if filter_status != 'All':
-        display_tasks = [t for t in tasks if t['status'] == filter_status.lower()]
+        display_df = df[df['status'] == filter_status.lower()].copy()
     else:
-        display_tasks = tasks
+        display_df = df.copy()
     
-    sorted_tasks = sorted(display_tasks, key=lambda x: x['date'], reverse=True)
+    sorted_df = display_df.sort_values(by='date', ascending=False)
     
-    if not sorted_tasks:
+    if sorted_df.empty:
         st.warning(f"No tasks with status '{filter_status}'.")
         return
 
-    for task in sorted_tasks:
+    for index, row in sorted_df.iterrows():
         col1, col2, col3 = st.columns([0.1, 0.8, 0.1])
-        task_id = task['id']
-
+        
         with col1:
-            is_completed = st.checkbox("", value=(task['status'] == 'completed'), key=f"task_{task_id}")
+            is_completed = st.checkbox("", value=(row['status'] == 'completed'), key=f"task_{index}")
         
         with col2:
-            task_html = f"~~{task['task']}~~" if is_completed else task['task']
-            st.markdown(f"{task_html} <span style='color:grey; font-size: smaller;'>*(on {task['date'].strftime('%Y-%m-%d')})*</span>", unsafe_allow_html=True)
+            task_html = f"~~{row['task']}~~" if is_completed else row['task']
+            st.markdown(f"{task_html} <span style='color:grey; font-size: smaller;'>*(on {row['date'].strftime('%Y-%m-%d')})*</span>", unsafe_allow_html=True)
         
         with col3:
-            if st.button("🗑️", key=f"remove_{task_id}", help="Remove this task"):
-                delete_task(task_id)
+            if st.button("🗑️", key=f"remove_{index}", help="Remove this task"):
+                st.session_state.confirm_delete = index
                 st.rerun()
 
-        if is_completed != (task['status'] == 'completed'):
-            new_status = 'completed' if is_completed else 'pending'
-            update_task_status(task_id, new_status)
+        if is_completed != (row['status'] == 'completed'):
+            df.loc[index, 'status'] = 'completed' if is_completed else 'pending'
+            save_data(df)
             st.rerun()
 
-# --- SIDEBAR & MAIN PAGE LOGIC (Mostly unchanged) ---
+# --- Main App UI & Logic ---
 
+df = load_data()
+
+# --- Deletion Confirmation Modal ---
+if st.session_state.confirm_delete is not None:
+    task_to_delete_index = st.session_state.confirm_delete
+    task_description = df.loc[task_to_delete_index, 'task']
+    with st.dialog("Confirm Deletion"):
+        st.warning(f"Are you sure you want to delete this task? \n\n> {task_description}")
+        col1, col2 = st.columns(2)
+        if col1.button("Yes, Delete"):
+            df = df.drop(task_to_delete_index).reset_index(drop=True)
+            save_data(df)
+            st.session_state.confirm_delete = None
+            st.success("Task deleted.")
+            st.rerun()
+        if col2.button("Cancel"):
+            st.session_state.confirm_delete = None
+            st.rerun()
+
+# --- Sidebar Input ---
 st.sidebar.header("Log a New Task")
 task_description = st.sidebar.text_input("Task Description:", placeholder="e.g., Solved LeetCode #217")
 task_date = st.sidebar.date_input("Completion Date:", datetime.date.today())
 
 if st.sidebar.button("Add Task", type="primary"):
     if task_description:
-        with st.spinner("Adding task..."):
-            save_task(task_description, task_date)
-            st.sidebar.success(f"Added task: '{task_description}'")
-            st.cache_data.clear() # Clear cache to reload data
-            st.rerun()
+        new_task = pd.DataFrame([{'date': pd.to_datetime(task_date), 'task': task_description, 'status': 'pending'}])
+        df = pd.concat([df, new_task], ignore_index=True)
+        save_data(df)
+        st.sidebar.success(f"Added task: '{task_description}'")
+        st.rerun()
     else:
         st.sidebar.warning("Please enter a task description.")
 
+# --- Main Page Display ---
 st.title("My LeetCoder Style Task Tracker 🎯")
-st.write("Your centralized task tracker. Data is now synced across all devices.")
+st.write("Your personal task tracker. All data is saved locally on this device.")
 
-tasks = load_data()
-
-if not tasks:
+if df.empty:
     st.info("No tasks logged yet. Add your first task using the sidebar to get started!")
 else:
-    total_completed, tasks_last_week, total_active_days, max_streak, current_streak = calculate_stats(tasks)
+    total_completed, tasks_last_week, total_active_days, max_streak, current_streak = calculate_stats(df)
     
     st.header("Your Stats")
     col1, col2, col3, col4 = st.columns(4)
@@ -245,9 +242,9 @@ else:
     display_badges(max_streak)
     st.markdown("---")
     st.header("Activity Heatmap")
-    st.pyplot(create_calendar_heatmap(tasks))
+    st.pyplot(create_calendar_heatmap(df))
     st.markdown("---")
     
     filter_status = st.selectbox("Filter tasks by status:", ['All', 'Pending', 'Completed'])
-    display_task_list(tasks, filter_status)
+    display_task_list(df, filter_status)
 
