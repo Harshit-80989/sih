@@ -2,5 +2,5 @@ streamlit
 pandas
 matplotlib
 seaborn
-google.cloud.firestore
-json
+google-cloud-firestore
+google-auth-oauthlib
