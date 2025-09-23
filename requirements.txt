@@ -3,4 +3,4 @@ pandas
 matplotlib
 seaborn
 google-cloud-firestore
-google-auth-oauthlibstreamlit
+google-auth-oauthlib
