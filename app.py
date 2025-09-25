@@ -9,14 +9,13 @@ import json
 import os
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Persistent Tracker", page_icon="💾", layout="wide")
+st.set_page_config(page_title="Undoable Tracker", page_icon="🔄", layout="wide")
 
 # --- FILE-BASED PERSISTENCE ---
 DATA_FILE = "progress.json"
 
 def save_completed_dates(dates):
     """Saves the list of completed dates to a local JSON file."""
-    # Convert datetime.date objects to strings in 'YYYY-MM-DD' format for JSON serialization
     dates_as_strings = [d.strftime('%Y-%m-%d') for d in dates]
     with open(DATA_FILE, 'w') as f:
         json.dump(dates_as_strings, f)
@@ -24,25 +23,21 @@ def save_completed_dates(dates):
 def load_completed_dates():
     """Loads the list of completed dates from the local JSON file."""
     if not os.path.exists(DATA_FILE):
-        return []  # Return an empty list if the file doesn't exist yet
+        return []
     try:
         with open(DATA_FILE, 'r') as f:
             dates_from_strings = json.load(f)
-            # Convert strings back to datetime.date objects
             return [datetime.datetime.strptime(d_str, '%Y-%m-%d').date() for d_str in dates_from_strings]
     except (json.JSONDecodeError, TypeError):
-        # If the file is empty or corrupted, start fresh
         return []
 
 
 # --- SESSION STATE INITIALIZATION ---
-# Load the dates from the file into session state ONLY when the app first starts.
 if 'completed_dates' not in st.session_state:
     st.session_state.completed_dates = load_completed_dates()
 
 
 # --- CORE PLOTTING LOGIC ---
-
 def create_completion_heatmap(completed_dates):
     """Generates a heatmap where a day is green only if it's in the completed_dates list."""
     today = datetime.date.today()
@@ -63,7 +58,7 @@ def create_completion_heatmap(completed_dates):
 
     heatmap_data = calendar_data.pivot_table(index='weekday', columns='year_week', values='completed', fill_value=0).sort_index(axis=1)
 
-    colors = ["#ebedf0", "#40c463"]  # Light Gray, Green
+    colors = ["#ebedf0", "#40c463"]
     custom_cmap = ListedColormap(colors)
 
     fig, ax = plt.subplots(figsize=(16, 4))
@@ -94,22 +89,31 @@ def create_completion_heatmap(completed_dates):
 
 
 # --- Main App UI ---
-st.title("Persistent Daily Tracker 💾")
-st.write("Your progress is now saved locally in `progress.json`. Click the button to mark today's square green.")
+st.title("Daily Habit Tracker 🔄")
+st.write("Your progress is saved in `progress.json`. The button below will change based on today's status.")
 
 today = datetime.date.today()
+date_str = today.strftime('%B %d, %Y')
 
-if st.button(f"Mark Today as Complete ✅ ({today.strftime('%B %d, %Y')})"):
-    if today not in st.session_state.completed_dates:
+# --- ** NEW CONDITIONAL BUTTON LOGIC ** ---
+if today in st.session_state.completed_dates:
+    # If today is already marked, show the "Undo" button
+    st.success(f"You've completed your goal for {date_str}! 🎉")
+    if st.button(f"Undo Today's Completion ❌", type="primary"):
+        st.session_state.completed_dates.remove(today)
+        save_completed_dates(st.session_state.completed_dates)
+        st.warning("Today's completion has been removed.")
+        st.rerun()
+else:
+    # If today is not marked, show the "Mark as Complete" button
+    st.info(f"Have you completed your goal for {date_str}?")
+    if st.button(f"Mark Today as Complete ✅"):
         st.session_state.completed_dates.append(today)
-        # Save the updated list to the file immediately
         save_completed_dates(st.session_state.completed_dates)
         st.success("Progress saved! Great work.")
-        # Rerun to show the updated chart instantly
         st.rerun()
-    else:
-        st.info("Today is already marked as complete!")
 
 st.markdown("---")
 
+# Display the updated heatmap
 st.pyplot(create_completion_heatmap(st.session_state.completed_dates))
