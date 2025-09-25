@@ -5,141 +5,83 @@ from datetime import timedelta
 import matplotlib.pyplot as plt
 import seaborn as sns
 from matplotlib.colors import ListedColormap
-import random
 
 # --- CONFIGURATION ---
-st.set_page_config(page_title="Data Science Journey", page_icon="🎓", layout="wide")
+st.set_page_config(page_title="Task Completion Status", page_icon="🟢", layout="wide")
 
-
-# --- STATIC DATA GENERATION (Replaces Database) ---
-# This function creates a sample list of completed data science tasks.
-def get_journey_data():
-    """Generates a hardcoded list of tasks for the 'Learnt DATA SCIENCE' goal."""
-    tasks = []
+# --- STATIC DATA SOURCE ---
+def get_static_tasks():
+    """
+    Creates a hardcoded list of tasks with different statuses and dates.
+    This replaces any database or user input.
+    """
     today = datetime.date.today()
-    
-    # List of possible sub-tasks with days ago they might have been completed
-    learning_path = [
-        ("Setup Python & Dev Environment", 300), ("Completed Python Basics Course", 290),
-        ("Learned NumPy for numerical data", 270), ("Mastered Pandas for data manipulation", 260),
-        ("Practiced data cleaning on a messy dataset", 255), ("Web Scraped data with BeautifulSoup", 240),
-        ("Learned Matplotlib for plotting", 230), ("Created advanced charts with Seaborn", 225),
-        ("Understood Statistical Concepts (Mean, Median, Variance)", 210),
-        ("Completed a course on Probability", 200), ("Learned Linear Regression", 180),
-        ("Built a Logistic Regression model", 175), ("Studied Decision Trees and Random Forests", 160),
-        ("Completed an NLP project with NLTK", 140), ("Fine-tuned a Hugging Face Transformer model", 130),
-        ("Understood SQL and relational databases", 110), ("Practiced complex SQL queries", 105),
-        ("Deployed a model using Flask API", 70), ("Containerized an app with Docker", 65),
-        ("Built an interactive dashboard with Streamlit", 40), ("Completed a Kaggle competition", 30),
-        ("Finalized my Data Science portfolio", 10), ("Reviewed project and updated resume", 5)
+    tasks = [
+        {'id': 1, 'task': 'Draft project proposal', 'status': 'completed', 'date': today - timedelta(days=3)},
+        {'id': 2, 'task': 'Review Q3 budget', 'status': 'completed', 'date': today - timedelta(days=10)},
+        {'id': 3, 'task': 'Send follow-up emails', 'status': 'pending', 'date': today - timedelta(days=10)},
+        {'id': 4, 'task': 'Finalize marketing slides', 'status': 'completed', 'date': today - timedelta(days=15)},
+        {'id': 5, 'task': 'Plan team offsite', 'status': 'pending', 'date': today - timedelta(days=15)},
+        {'id': 6, 'task': 'Research new software', 'status': 'pending', 'date': today - timedelta(days=20)},
+        {'id': 7, 'task': 'Submit expense report', 'status': 'completed', 'date': today - timedelta(days=25)},
+        {'id': 8, 'task': 'Onboard new hire', 'status': 'completed', 'date': today - timedelta(days=30)},
+        {'id': 9, 'task': 'Update project roadmap', 'status': 'completed', 'date': today - timedelta(days=31)},
+        {'id': 10, 'task': 'Prepare for client meeting', 'status': 'pending', 'date': datetime.date.today()}
     ]
-
-    for i, (task_desc, days_ago) in enumerate(learning_path):
-        task_date = today - timedelta(days=days_ago)
-        tasks.append({
-            'id': f'task_{i}',
-            'date': datetime.datetime.combine(task_date, datetime.datetime.min.time()),
-            'task': task_desc,
-            'status': 'completed'
-        })
     
-    # Add some random "practice" days to make the heatmap look more realistic
-    for _ in range(40):
-        random_date = today - timedelta(days=random.randint(10, 300))
-        tasks.append({
-            'id': f'practice_{_}',
-            'date': datetime.datetime.combine(random_date, datetime.datetime.min.time()),
-            'task': 'Daily practice & problem solving',
-            'status': 'completed'
-        })
+    # Convert dates to datetime objects
+    for task in tasks:
+        task['date'] = datetime.datetime.combine(task['date'], datetime.datetime.min.time())
         
     return tasks
 
+# --- CORE PLOTTING LOGIC (MODIFIED) ---
 
-# --- CORE LOGIC & PLOTTING (Largely Unchanged) ---
-
-def calculate_stats(tasks):
+def create_completion_heatmap(tasks):
+    """
+    Generates a heatmap where a day is green if it has ANY completed tasks,
+    otherwise it's white/gray.
+    """
     if not tasks:
-        return 0, 0, 0, 0, 0
-    
-    df = pd.DataFrame(tasks)
-    df['date'] = pd.to_datetime(df['date'])
-    
-    completed_df = df[df['status'] == 'completed']
-    unique_dates = sorted(df['date'].dt.date.unique())
-    total_active_days = len(unique_dates)
-
-    one_week_ago = datetime.date.today() - timedelta(days=7)
-    tasks_last_week = completed_df[completed_df['date'].dt.date > one_week_ago].shape[0]
-
-    if not unique_dates:
-        return completed_df.shape[0], tasks_last_week, 0, 0, 0
-    
-    max_streak = 0
-    if total_active_days > 0:
-        max_streak = 1
-        current_streak_calc = 1
-        for i in range(1, len(unique_dates)):
-            if unique_dates[i] == unique_dates[i - 1] + timedelta(days=1):
-                current_streak_calc += 1
-            else:
-                current_streak_calc = 1
-            if current_streak_calc > max_streak:
-                max_streak = current_streak_calc
-    
-    current_streak = 0
-    if unique_dates:
-        today = datetime.date.today()
-        if unique_dates and (unique_dates[-1] == today or unique_dates[-1] == today - timedelta(days=1)):
-            current_streak = 1
-            for i in range(len(unique_dates) - 1, 0, -1):
-                if unique_dates[i] == unique_dates[i - 1] + timedelta(days=1):
-                    current_streak += 1
-                else:
-                    break
-        if not unique_dates or unique_dates[-1] < today - timedelta(days=1):
-            current_streak = 0
-            
-    return completed_df.shape[0], tasks_last_week, total_active_days, max_streak, current_streak
-
-def create_calendar_heatmap(tasks):
-    if not tasks:
-        fig, ax = plt.subplots(figsize=(16, 4))
-        ax.text(0.5, 0.5, 'No activity to display', ha='center', va='center')
+        fig, ax = plt.subplots()
+        ax.text(0.5, 0.5, 'No tasks to display', ha='center', va='center')
         return fig
 
     df = pd.DataFrame(tasks)
     df['date'] = pd.to_datetime(df['date'])
-    daily_counts = df.groupby(df['date'].dt.date).size()
+
+    # *** KEY CHANGE: Filter for ONLY completed tasks before counting ***
+    completed_df = df[df['status'] == 'completed']
+    
+    # Count occurrences of completed tasks for each day
+    daily_completions = completed_df.groupby(completed_df['date'].dt.date).size()
     
     today = datetime.date.today()
     start_date = today - timedelta(weeks=53)
     all_days = pd.date_range(start=start_date, end=today, freq='D')
-    daily_counts = daily_counts.reindex(all_days.date, fill_value=0)
     
-    calendar_data = pd.DataFrame({'counts': daily_counts.values, 'date': daily_counts.index})
+    # Reindex to create a full calendar, filling missing days with 0 completions
+    daily_completions = daily_completions.reindex(all_days.date, fill_value=0)
+    
+    # Convert counts to a simple 0 (no completion) or 1 (completion)
+    # This ensures a single color for any day with a completed task.
+    completion_binary = (daily_completions > 0).astype(int)
+    
+    calendar_data = pd.DataFrame({'completed': completion_binary, 'date': completion_binary.index})
     calendar_data['date'] = pd.to_datetime(calendar_data['date'])
     calendar_data['weekday'] = calendar_data['date'].dt.weekday
     calendar_data['week'] = calendar_data['date'].dt.isocalendar().week
     calendar_data['year'] = calendar_data['date'].dt.year
     calendar_data['year_week'] = calendar_data['year'].astype(str) + '-' + calendar_data['week'].astype(str).str.zfill(2)
     
-    heatmap_data = calendar_data.pivot_table(index='weekday', columns='year_week', values='counts', fill_value=0).sort_index(axis=1)
+    heatmap_data = calendar_data.pivot_table(index='weekday', columns='year_week', values='completed', fill_value=0).sort_index(axis=1)
 
-    colors = ["#ebedf0", "#9be9a8", "#40c463", "#30a14e", "#216e39"]
+    # Simplified color map: one for 'no completion', one for 'completion'
+    colors = ["#ebedf0", "#40c463"]  # Light Gray, Green
     custom_cmap = ListedColormap(colors)
-    
-    def categorize_counts(count):
-        if count == 0: return 0
-        elif 1 <= count <= 2: return 1
-        elif 3 <= count <= 5: return 2
-        elif 6 <= count <= 8: return 3
-        else: return 4
-    
-    categorized_data = heatmap_data.apply(lambda x: x.apply(categorize_counts))
 
     fig, ax = plt.subplots(figsize=(16, 4))
-    sns.heatmap(categorized_data, ax=ax, cmap=custom_cmap, linewidths=1.5, linecolor='white', cbar=False, square=True)
+    sns.heatmap(heatmap_data, ax=ax, cmap=custom_cmap, linewidths=1.5, linecolor='white', cbar=False, square=True)
     
     ax.set_yticklabels(['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'], rotation=0)
     ax.set_xlabel('')
@@ -160,48 +102,34 @@ def create_calendar_heatmap(tasks):
 
     ax.set_xticks(month_positions)
     ax.set_xticklabels(month_labels)
-    ax.set_title("Learning Contributions (Last Year)", fontsize=16, pad=20)
+    ax.set_title("Daily Task Completion Status", fontsize=16, pad=20)
     plt.tight_layout()
     return fig
 
 def display_task_list(tasks):
-    """Displays a simple, non-interactive list of completed tasks."""
-    st.header("Key Milestones Achieved")
+    """Displays a simple, non-interactive list of tasks and their status."""
+    st.header("Task Status Overview")
     
     sorted_tasks = sorted(tasks, key=lambda x: x['date'], reverse=True)
 
     for task in sorted_tasks:
-        # We display the task as completed (strikethrough)
-        task_html = f"~~{task['task']}~~"
-        st.markdown(f"✅ {task_html} <span style='color:grey; font-size: smaller;'>*(on {task['date'].strftime('%Y-%m-%d')})*</span>", unsafe_allow_html=True)
-    st.balloons()
+        if task['status'] == 'completed':
+            icon = "✅"
+            text = f"~~{task['task']}~~"
+        else:
+            icon = "⏳"
+            text = task['task']
+            
+        st.markdown(f"{icon} {text} <span style='color:grey; font-size: smaller;'>*(Due {task['date'].strftime('%Y-%m-%d')})*</span>", unsafe_allow_html=True)
 
 
-# --- Main App UI & Logic ---
+# --- Main App UI ---
+st.title("Task Completion Visualizer 🟢")
+st.write("This dashboard shows the status of a predefined set of tasks. The calendar is green on days with at least one completed task.")
 
-# --- Sidebar (Simplified) ---
-st.sidebar.header("Goal ✅")
-st.sidebar.success("Learnt DATA SCIENCE")
-st.sidebar.info("This dashboard visualizes the journey and milestones achieved towards completing the goal.")
-
-# --- Main Page Display ---
-st.title("My Data Science Learning Journey 🎓")
-st.write("A visual record of the dedication and progress made to master Data Science.")
-
-tasks = get_journey_data()
-
-total_completed, tasks_last_week, total_active_days, max_streak, current_streak = calculate_stats(tasks)
-
-st.header("Your Stats")
-col1, col2, col3, col4 = st.columns(4)
-col1.metric("Total Milestones Logged", f"{total_completed}", f"{tasks_last_week} in the last 7 days")
-col2.metric("Total Active Learning Days", f"{total_active_days}")
-col3.metric("Current Learning Streak", f"⚡ {current_streak} Days")
-col4.metric("Max Learning Streak", f"🔥 {max_streak} Days")
+tasks = get_static_tasks()
 
 st.markdown("---")
-st.header("Activity Heatmap")
-st.pyplot(create_calendar_heatmap(tasks))
+st.pyplot(create_completion_heatmap(tasks))
 st.markdown("---")
-
 display_task_list(tasks)
